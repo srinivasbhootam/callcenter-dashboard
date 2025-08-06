@@ -6,18 +6,22 @@ import plotly.express as px
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# ── Upload & Load ─────────────────────────────────────────────────────────────────
+# ── Upload & Load ────────────────────────────────────────────────────────────────
 st.sidebar.header("🔄 Upload Cleaned Dataset")
 uploaded_file = st.sidebar.file_uploader(
     "Choose cleaned_snead_data.csv", type="csv"
 )
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file, parse_dates=["Timestamp"])
-else:
+if not uploaded_file:
     st.sidebar.info("Please upload your cleaned CSV to proceed.")
     st.stop()
 
-df.columns = [col.strip() for col in df.columns]
+# Read in the uploaded CSV and parse dates
+df = pd.read_csv(uploaded_file, parse_dates=["Timestamp"])
+
+# ── Normalize & Rename Headers ───────────────────────────────────────────────────
+# Strip any extra whitespace from column names
+df.columns = df.columns.str.strip()
+# Rename to the names your analysis expects
 df = df.rename(columns={
     "Agent Name:":        "Agent Name",
     "Reason for Calling:":"Reason for Calling",
@@ -55,15 +59,16 @@ threshold_75 = 0.75 * call_counts_excl_kim.max()
 summary_by_agent = df.groupby("Agent Name").agg(
     Total_Calls       = ("Timestamp", "count"),
     Avg_Idle_Time_min = ("Idle Time (min)", "mean"),
-    New_Bookings      = ("New patient?", lambda x: (x=="Yes").sum())
+    New_Bookings      = ("New patient?", lambda x: (x == "Yes").sum())
 ).reset_index()
 
-summary_by_agent["Avg_Idle_Time_min"] = (
+# ── Robust formatting of Avg Idle Time ────────────────────────────────────────────
+summary_by_agent["Avg Idle Time (min)"] = (
     summary_by_agent["Avg_Idle_Time_min"]
-      .round()
-      .astype(int)
-      .astype(str)
-    + " mins"
+      .fillna(0)               # replace any NaN with zero
+      .round()                 # round to nearest whole minute
+      .astype(int)             # safe cast to int
+      .astype(str) + " mins"   # append units
 )
 
 # ── Weekday Order ─────────────────────────────────────────────────────────────────
@@ -79,7 +84,7 @@ if agent_filter:
     df = df[df["Agent Name"].isin(agent_filter)]
 if reason_filter:
     df = df[df["Reason for Calling"].isin(reason_filter)]
-if isinstance(date_filter, list) and len(date_filter)==2:
+if isinstance(date_filter, list) and len(date_filter) == 2:
     start, end = date_filter
     df = df[(df["Call Date"] >= start) & (df["Call Date"] <= end)]
 
@@ -93,7 +98,7 @@ with tab1:
     # 1️⃣ Daily Call Volume
     daily = df.groupby("Call Date").size().reset_index(name="Calls")
     fig1 = px.line(daily, x="Call Date", y="Calls", title="Daily Call Volume")
-    fig1.update_layout(yaxis=dict(tickformat=","))
+    fig1.update_layout(yaxis=dict(tickformat=","), xaxis_title="")
     st.plotly_chart(fig1, use_container_width=True)
 
     # 2️⃣ Weekly Call Volume
@@ -101,12 +106,11 @@ with tab1:
     st.subheader("📅 Weekly Call Volume")
     fig2 = px.bar(
         weekly,
-        x="Week Start",
-        y="Calls",
+        x="Week Start", y="Calls",
         labels={"Week Start":"Week Starting","Calls":"# Calls"},
         title="Weekly Call Volume"
     )
-    fig2.update_layout(xaxis_tickangle=45, yaxis=dict(tickformat=","))
+    fig2.update_layout(xaxis_tickangle=45, yaxis=dict(tickformat=","), xaxis_title="")
     st.plotly_chart(fig2, use_container_width=True)
 
     # 3️⃣ Call Volume by Day of Week (Mon–Fri)
@@ -120,12 +124,11 @@ with tab1:
     st.subheader("📆 Call Volume by Day of Week (Mon–Fri)")
     fig3 = px.bar(
         dow_counts,
-        x="Day of Week",
-        y="Calls",
+        x="Day of Week", y="Calls",
         category_orders={"Day of Week": WEEKDAYS},
         title="Call Volume by Day (Mon–Fri)"
     )
-    fig3.update_layout(yaxis=dict(tickformat=","))
+    fig3.update_layout(yaxis=dict(tickformat=","), xaxis_title="")
     st.plotly_chart(fig3, use_container_width=True)
 
     # 4️⃣ Top 10 Reasons for Calling (Percentage View)
@@ -141,10 +144,8 @@ with tab1:
     st.subheader("📋 Top 10 Reasons for Calling (by % of Total)")
     fig4 = px.bar(
         reasons_pct,
-        x="Percent",
-        y="Reason",
-        orientation="h",
-        text="Percent",
+        x="Percent", y="Reason",
+        orientation="h", text="Percent",
         labels={"Percent":"% of Calls","Reason":""}
     )
     fig4.update_traces(
@@ -152,7 +153,7 @@ with tab1:
         customdata=reasons_pct[["Count"]].values,
         textposition='inside'
     )
-    fig4.update_layout(yaxis={'categoryorder':'total ascending'})
+    fig4.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_title="")
     st.plotly_chart(fig4, use_container_width=True)
 
     # 5️⃣ New vs Established Appointments
@@ -187,7 +188,7 @@ with tab2:
     # Calls by Agent
     st.subheader("📊 Calls by Agent")
     fig_agent = px.bar(lb, x="Agent Name", y="Calls", title="Calls by Agent")
-    fig_agent.update_layout(yaxis=dict(tickformat=","))
+    fig_agent.update_layout(yaxis=dict(tickformat=","), xaxis_title="")
     st.plotly_chart(fig_agent, use_container_width=True)
 
     # Underperformers
@@ -208,7 +209,7 @@ with tab2:
           .reindex(columns=WEEKDAYS, fill_value=0)
     )
     fig, ax = plt.subplots(figsize=(12,6))
-    sns.heatmap(hm, annot=True, fmt="d", cmap="Reds", ax=ax)
+    sns.heatmap(hm, annot=True, fmt='d', cmap='Reds', ax=ax)
     ax.set_title("All Agents: Calls by Day (Mon–Fri)")
     ax.set_xlabel("")
     ax.set_ylabel("Agent Name")
@@ -228,12 +229,12 @@ with tab2:
 
     # Detailed Summary by Agent (exclude team lead)
     st.subheader("✅ Detailed Summary by Agent")
-    summary_display = summary_by_agent[summary_by_agent["Agent Name"]!="Zayra Lopez"] \
+    summary_display = summary_by_agent[summary_by_agent["Agent Name"] != "Zayra Lopez"] \
                          .set_index("Agent Name")
     st.dataframe(summary_display)
     st.info(
-        "ℹ️ Kim Villafuerte is a special case with both inbound and outbound calls."
+        "ℹ️ Kim Villafuerte handles both inbound and outbound calls."
     )
     st.warning(
-        "⚠️ Zayra Lopez is the team lead and she is not included in performance metrics comparison."
+        "⚠️ Zayra Lopez is the team lead and is excluded from performance comparisons."
     )
